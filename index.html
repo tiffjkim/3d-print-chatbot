@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>3D Print Failure Diagnostics</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f0f0f;
+      --surface: #181818;
+      --surface2: #222222;
+      --border: rgba(255,255,255,0.08);
+      --border-strong: rgba(255,255,255,0.14);
+      --text: #f0ede8;
+      --text-muted: #888880;
+      --text-dim: #555550;
+      --accent: #e8d5a3;
+      --accent-dim: rgba(232,213,163,0.12);
+      --accent-border: rgba(232,213,163,0.25);
+      --red: #c0392b;
+      --font-mono: 'IBM Plex Mono', monospace;
+      --font-sans: 'IBM Plex Sans', sans-serif;
+      --radius: 4px;
+      --radius-lg: 8px;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-sans);
+      font-size: 15px;
+      line-height: 1.6;
+    }
+
+    /* LAYOUT */
+    .app {
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      height: 100vh;
+      max-width: 760px;
+      margin: 0 auto;
+    }
+
+    /* HEADER */
+    header {
+      padding: 20px 24px 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .header-left h1 {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--accent);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 3px;
+    }
+
+    .header-left p {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+    }
+
+    .status-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: #4a9;
+      margin-top: 6px;
+      flex-shrink: 0;
+      box-shadow: 0 0 6px rgba(68,170,136,0.5);
+      animation: pulse 2.5s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    /* MESSAGES */
+    #messages {
+      overflow-y: auto;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      scrollbar-width: thin;
+      scrollbar-color: var(--surface2) transparent;
+    }
+
+    #messages::-webkit-scrollbar { width: 4px; }
+    #messages::-webkit-scrollbar-thumb { background: var(--surface2); border-radius: 2px; }
+
+    .msg { display: flex; gap: 12px; }
+    .msg.user { flex-direction: row-reverse; }
+
+    .avatar {
+      width: 28px; height: 28px;
+      border-radius: var(--radius);
+      display: flex; align-items: center; justify-content: center;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 500;
+      flex-shrink: 0;
+      margin-top: 2px;
+      letter-spacing: 0.05em;
+    }
+
+    .msg.user .avatar {
+      background: var(--accent-dim);
+      color: var(--accent);
+      border: 1px solid var(--accent-border);
+    }
+
+    .msg.bot .avatar {
+      background: var(--surface2);
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+    }
+
+    .msg-body { display: flex; flex-direction: column; gap: 8px; max-width: calc(100% - 44px); }
+
+    .bubble {
+      padding: 11px 15px;
+      border-radius: var(--radius-lg);
+      font-size: 14px;
+      line-height: 1.65;
+      border: 1px solid var(--border);
+    }
+
+    .msg.user .bubble {
+      background: var(--accent-dim);
+      border-color: var(--accent-border);
+      color: var(--accent);
+      align-self: flex-end;
+    }
+
+    .msg.bot .bubble {
+      background: var(--surface);
+      color: var(--text);
+    }
+
+    .bubble.loading { color: var(--text-muted); font-style: italic; }
+
+    .bubble ul { padding-left: 18px; margin: 6px 0; }
+    .bubble li { margin: 3px 0; }
+    .bubble strong { color: var(--accent); font-weight: 500; }
+    .bubble p + p { margin-top: 8px; }
+
+    /* TERM CALLOUT */
+    .term-callout {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--accent);
+      background: var(--accent-dim);
+      border: 1px solid var(--accent-border);
+      border-radius: var(--radius);
+      padding: 3px 9px;
+      margin-bottom: 2px;
+    }
+
+    /* RELATED */
+    .related-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 10px 13px;
+    }
+
+    .related-label {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-bottom: 7px;
+    }
+
+    .related-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+
+    .related-chip {
+      font-size: 12px;
+      font-family: var(--font-mono);
+      padding: 4px 10px;
+      border-radius: var(--radius);
+      background: var(--surface2);
+      color: var(--text-muted);
+      border: 1px solid var(--border-strong);
+      cursor: pointer;
+      transition: color 0.15s, border-color 0.15s;
+    }
+
+    .related-chip:hover {
+      color: var(--accent);
+      border-color: var(--accent-border);
+    }
+
+    /* CITATIONS */
+    .citations { display: flex; flex-wrap: wrap; gap: 5px; }
+
+    .cite-tag {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      padding: 3px 8px;
+      border-radius: var(--radius);
+      background: transparent;
+      color: var(--text-dim);
+      border: 1px solid var(--border);
+      letter-spacing: 0.02em;
+    }
+
+    .cite-tag::before { content: "§ "; }
+
+    /* LOADING DOTS */
+    .dots span { animation: blink 1.2s infinite; font-style: normal; }
+    .dots span:nth-child(2) { animation-delay: 0.2s; }
+    .dots span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes blink { 0%,80%,100%{opacity:0.2}40%{opacity:1} }
+
+    /* SUGGESTIONS */
+    #suggestions {
+      padding: 0 24px 12px;
+      display: flex;
+      gap: 7px;
+      flex-wrap: wrap;
+    }
+
+    .suggestion-btn {
+      font-size: 12px;
+      font-family: var(--font-mono);
+      padding: 5px 12px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border-strong);
+      background: transparent;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: color 0.15s, border-color 0.15s;
+    }
+
+    .suggestion-btn:hover {
+      color: var(--text);
+      border-color: var(--border-strong);
+      background: var(--surface2);
+    }
+
+    /* INPUT */
+    #input-area {
+      padding: 14px 24px 20px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    #user-input {
+      flex: 1;
+      background: var(--surface);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-lg);
+      padding: 10px 16px;
+      font-size: 14px;
+      font-family: var(--font-sans);
+      color: var(--text);
+      outline: none;
+      transition: border-color 0.15s;
+      height: 42px;
+    }
+
+    #user-input::placeholder { color: var(--text-dim); }
+    #user-input:focus { border-color: rgba(232,213,163,0.35); }
+
+    #send-btn {
+      width: 42px; height: 42px;
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--border-strong);
+      background: var(--surface2);
+      color: var(--text-muted);
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px;
+      flex-shrink: 0;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    #send-btn:hover:not(:disabled) {
+      background: var(--accent-dim);
+      color: var(--accent);
+      border-color: var(--accent-border);
+    }
+
+    #send-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+    /* MOBILE */
+    @media (max-width: 600px) {
+      header, #messages, #input-area, #suggestions { padding-left: 16px; padding-right: 16px; }
+    }
+  </style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="header-left">
+      <h1>3D Print Diagnostics</h1>
+      <p>Aranda (2022) — 660 pages · cite-grounded answers</p>
+    </div>
+    <div class="status-dot" title="Online"></div>
+  </header>
+
+  <div id="messages">
+    <div class="msg bot">
+      <div class="avatar">SYS</div>
+      <div class="msg-body">
+        <div class="bubble">Hey — describe what's going wrong however makes sense to you. "It looks like spaghetti," "the bottom is all flared out," "it keeps peeling off the bed" — I'll figure out the technical name and walk you through the fix. Every answer cites the exact chapter it came from.</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="suggestions">
+    <button class="suggestion-btn" onclick="sendSuggestion('there are like hairs all over my print')">hairs everywhere</button>
+    <button class="suggestion-btn" onclick="sendSuggestion('the bottom of my print is flared out like a skirt')">bottom flares out</button>
+    <button class="suggestion-btn" onclick="sendSuggestion('it keeps falling off the bed mid print')">falls off the bed</button>
+    <button class="suggestion-btn" onclick="sendSuggestion('my print has ripples or waves on the sides')">ripples on sides</button>
+    <button class="suggestion-btn" onclick="sendSuggestion('there are gaps on the top surface of my print')">gaps on top</button>
+    <button class="suggestion-btn" onclick="sendSuggestion('the layers are shifting and my print looks staggered')">layers shifting</button>
+  </div>
+
+  <div id="input-area">
+    <input type="text" id="user-input" placeholder="Describe your print failure in plain English..." autocomplete="off" />
+    <button id="send-btn" onclick="sendMessage()" title="Send">&#8593;</button>
+  </div>
+</div>
+
+<script>
+  let conversationHistory = [];
+  let isLoading = false;
+
+  function parseBlocks(text) {
+    const citeMatch = text.match(/<citations>([\s\S]*?)<\/citations>/);
+    const relatedMatch = text.match(/<related>([\s\S]*?)<\/related>/);
+    let chapters = [], related = [];
+    try { if (citeMatch) chapters = JSON.parse(citeMatch[1]); } catch(e) {}
+    try { if (relatedMatch) related = JSON.parse(relatedMatch[1]); } catch(e) {}
+    const clean = text
+      .replace(/<citations>[\s\S]*?<\/citations>/, '')
+      .replace(/<related>[\s\S]*?<\/related>/, '')
+      .trim();
+    return { clean, chapters, related };
+  }
+
+  function formatMessage(text) {
+    return text
+      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.*?)\*/g, '<em>$1</em>')
+      .replace(/^[-•] (.+)$/gm, '<li>$1</li>')
+      .replace(/(<li>.*<\/li>)/gs, '<ul>$1</ul>')
+      .replace(/\n\n/g, '</p><p>')
+      .replace(/\n/g, '<br>');
+  }
+
+  function addMessage(role, content, chapters = [], related = [], isTemp = false) {
+    const messages = document.getElementById('messages');
+    const div = document.createElement('div');
+    div.className = `msg ${role === 'user' ? 'user' : 'bot'}`;
+    if (isTemp) div.id = 'temp-msg';
+
+    const avatar = document.createElement('div');
+    avatar.className = 'avatar';
+    avatar.textContent = role === 'user' ? 'YOU' : 'BOT';
+
+    const body = document.createElement('div');
+    body.className = 'msg-body';
+
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble' + (isTemp ? ' loading' : '');
+
+    if (isTemp) {
+      bubble.innerHTML = 'Diagnosing<span class="dots"><span>.</span><span>.</span><span>.</span></span>';
+    } else {
+      bubble.innerHTML = '<p>' + formatMessage(content) + '</p>';
+    }
+
+    body.appendChild(bubble);
+
+    if (related.length > 0) {
+      const relBox = document.createElement('div');
+      relBox.className = 'related-box';
+      const label = document.createElement('div');
+      label.className = 'related-label';
+      label.textContent = 'You might also be seeing';
+      const chips = document.createElement('div');
+      chips.className = 'related-chips';
+      related.forEach(r => {
+        const chip = document.createElement('button');
+        chip.className = 'related-chip';
+        chip.textContent = r + ' →';
+        chip.onclick = () => {
+          document.getElementById('user-input').value = 'Tell me about: ' + r;
+          sendMessage();
+        };
+        chips.appendChild(chip);
+      });
+      relBox.appendChild(label);
+      relBox.appendChild(chips);
+      body.appendChild(relBox);
+    }
+
+    if (chapters.length > 0) {
+      const citeDiv = document.createElement('div');
+      citeDiv.className = 'citations';
+      chapters.forEach(ch => {
+        const tag = document.createElement('span');
+        tag.className = 'cite-tag';
+        tag.textContent = ch;
+        tag.title = `Source: "${ch}" — Aranda (2022)`;
+        citeDiv.appendChild(tag);
+      });
+      body.appendChild(citeDiv);
+    }
+
+    div.appendChild(avatar);
+    div.appendChild(body);
+    messages.appendChild(div);
+    messages.scrollTop = messages.scrollHeight;
+  }
+
+  async function sendMessage() {
+    const input = document.getElementById('user-input');
+    const text = input.value.trim();
+    if (!text || isLoading) return;
+
+    input.value = '';
+    isLoading = true;
+    document.getElementById('send-btn').disabled = true;
+    document.getElementById('suggestions').style.display = 'none';
+
+    addMessage('user', text);
+    conversationHistory.push({ role: 'user', content: text });
+    addMessage('bot', '', [], [], true);
+
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: conversationHistory }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'API error');
+      }
+
+      const raw = data.content?.[0]?.text || 'Sorry, something went wrong. Please try again.';
+      const { clean, chapters, related } = parseBlocks(raw);
+
+      document.getElementById('temp-msg')?.remove();
+      addMessage('bot', clean, chapters, related);
+      conversationHistory.push({ role: 'assistant', content: raw });
+
+    } catch (err) {
+      document.getElementById('temp-msg')?.remove();
+      addMessage('bot', `Error: ${err.message}. Check that your API key is set in Vercel environment variables.`);
+    }
+
+    isLoading = false;
+    document.getElementById('send-btn').disabled = false;
+    input.focus();
+  }
+
+  function sendSuggestion(text) {
+    document.getElementById('user-input').value = text;
+    sendMessage();
+  }
+
+  document.getElementById('user-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+  });
+</script>
+</body>
+</html>
